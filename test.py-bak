@@ -1,0 +1,222 @@
+import matplotlib
+matplotlib.use('Agg')
+from matplotlib import pyplot as plt
+import pandas as pd
+from scipy.stats.mstats import linregress
+import imageio
+import cv2
+import os
+from clint.textui import progress
+from random import uniform
+import augmentation
+from keras.models import Sequential, load_model
+from keras.layers import Convolution2D, Dense, Flatten, MaxPooling2D, Dropout
+import numpy as np
+from keras.models import Model
+import tensorflow.keras.backend as K
+import tensorflow as tf
+from tensorflow.keras.preprocessing import image
+
+
+def parse_csv(CSV):
+    df = pd.read_csv(CSV, delim_whitespace=False, header=0, index_col=0)
+    return df
+
+#new load test data function
+
+def load_test_data_into_memory(DIR, ANNO, ATTRIBUTE, normalize=True, rollaxis=True):
+    #if DIR[:-1] != '/': DIR += '/'
+    
+    #files = os.listdir(DIR)
+    annotations_list = list(parse_csv(ANNO).index)
+    files = []
+    for root, directories, files_list in os.walk(DIR):
+        for name in files_list:
+            if name in annotations_list:
+                files.append(os.path.join(root, name))
+    
+    print('Number of files: ' + str(len(files)))
+    X = []
+    ImageOrder = []
+    y = 0
+    for image_path in progress.bar(files):
+        #img = imageio.imread(DIR + image_path)
+        img = imageio.imread(image_path)
+        print('Image shape: ' + str(img.shape))
+        if normalize: img = img.astype('float32') / 255.
+        if rollaxis: img.shape = (1,150,130)
+        else: img.shape = (150,130,1)
+        X.append(img)
+        y+=1
+        ImageOrder.append(image_path)
+    x = np.array(X)
+    print('Loaded {} images into memory'.format(y))
+    return x,ImageOrder
+
+def normalizedf(df, trainPath):
+    files = filter(lambda x: x in df.index.values, os.listdir(trainPath))
+    y = []
+    for image_path in progress.bar(files):
+        #mu = df[ATTRIBUTE][image_path]
+        mu = df['label'][image_path]
+        y.append(mu)
+    y = np.array(y)
+    y = y - min(y)
+    y = np.float32(y / max(y))
+
+    return np.array(y)
+
+def avg(data):
+    return sum(data)/len(data)
+
+def variance(data):
+    mean = avg(data)
+    v1 = (data - mean) ** 2
+    return avg(v1)
+
+def stddv(data):
+    return np.sqrt(variance(data))
+    
+def get_Rsquared(y, predicted):
+    m, b, r, p, e = linregress(y=y, x=predicted)
+    r2 = r**2
+    return r2
+
+
+#so we could try to just load the images from the test folder and then see what predicted outputs are generated :)
+if __name__ == '__main__':
+    import numpy as np
+    import sys
+    import json
+    
+    f = open("/s/babbage/b/nobackup/nblancha/firstimpressionsDataCollection2021/Seagate/model_training/Images/test_set_eval_r2.txt", "w")
+
+    attribute_list = ['Age', 'Dominance', 'IQ', 'Trustworthiness']
+    eval_set_list = ['1_test_set_evaluations']#, '2_cfd_set_evaluations', '3_fafid_set_evaluations']
+    for ATTRIBUTE in attribute_list:
+        for EVAL_SET in eval_set_list:
+            evaluation_set = EVAL_SET
+            TEST_PATH = 'Images/' + evaluation_set + '/' + ATTRIBUTE
+
+            ANNO = 'Annotations/' + ATTRIBUTE + '/annotations_' + ATTRIBUTE + '.csv'
+            TRAIN_DIR = 'Images/' + ATTRIBUTE + '/train/'
+            #VAL_DIR = 'Images/' + ATTRIBUTE + '/validate/'
+            if evaluation_set == '1_test_set_evaluations':
+                TEST_DIR = 'Images/' + ATTRIBUTE + '/test/' # Test set evaluation
+                #TEST_DIR = 'Images/' + ATTRIBUTE + '/validate/' # Test set evaluation
+            elif evaluation_set == '2_cfd_set_evaluations':
+                TEST_DIR = 'ChicagoFull/ChicagoMoved/' # CFD set evaluation
+            elif evaluation_set == '3_fafid_set_evaluations':
+                TEST_DIR = 'facial_analytics__final_dataset__combined_folder__subset1__image_files__resized/' # Facial Analytics First Impressions Dataset (FAFID) evaluation
+
+            SPACE_FILE = 'Spaces/' + ATTRIBUTE + '/' + ATTRIBUTE + '_space.json'
+            MODEL_PATH = 'Models/' + ATTRIBUTE + '_model.h5'
+
+            topDIR = TEST_PATH + '/top10/'
+            bottomDIR = TEST_PATH + '/bottom10/'
+            centerDIR = TEST_PATH + '/center10/'
+
+            #load the test folder
+            print('Loading Testing Data')
+            Xtest,ModelOrder = load_test_data_into_memory(DIR=TEST_DIR, ANNO=ANNO, ATTRIBUTE=ATTRIBUTE, normalize=True, rollaxis=True)
+            #load the csv
+            df = parse_csv(ANNO)
+            #normalize the df
+            yf = normalizedf(df,TRAIN_DIR)
+            yf_TEST = normalizedf(df,TEST_DIR)
+            #get the csv statistics for the training set
+            TrainAvg = avg(yf)
+            #load the model
+            model = load_model(MODEL_PATH)
+            
+            
+            #run predictions on the test folder:
+            if evaluation_set == '1_test_set_evaluations' or evaluation_set == '2_cfd_set_evaluations':
+                image_eval_chuck_size = int(0.1 * len(Xtest))
+            elif evaluation_set == '3_fafid_set_evaluations':
+                image_eval_chuck_size = 500
+            ModelOutput = model.predict(Xtest)    
+            ModelPredictions = []
+            allOutput = ""
+            
+            # Get R2 value
+            print(len(list(yf_TEST)))
+            ModelOutput_list = []
+            for i in range(len(ModelOutput)):
+                ModelOutput_list.append(ModelOutput[i][0])
+            print(len(ModelOutput_list))
+            
+            r2_val = get_Rsquared(yf_TEST, ModelOutput_list)
+            Output = "{}, {}, {}".format(ATTRIBUTE, EVAL_SET, r2_val)
+            f.write(Output)
+            #print(ATTRIBUTE, EVAL_SET, r2_val)
+            
+            '''
+            #for x, y in np.nditer([ModelOutput,ModelOrder]):
+            #    ModelPredictions.append((x,y))
+            #    allOutput = allOutput + ("Image: {} : Prediction: {}\n".format(y,x))
+            for i in range(len(ModelOutput)):
+                ModelPredictions.append((ModelOutput[i],ModelOrder[i]))
+                allOutput = allOutput + ("Image: {} : Prediction: {}\n".format(ModelOrder[i],ModelOutput[i]))
+            
+            ModelPredictions.sort(key = lambda x: x[0])
+            f = open(TEST_PATH + "/All_Predictions.txt", "w")
+            f.write(allOutput)
+            f.close()
+
+            top10 = ModelPredictions[-image_eval_chuck_size:]
+            bottom10 = ModelPredictions[:image_eval_chuck_size]
+            center = len(ModelPredictions)//2
+            center10 = ModelPredictions[center-(image_eval_chuck_size/2):center+(image_eval_chuck_size/2)]
+
+            #for im in top10:
+            #    print(im[1].tostring())
+            predictionOutput = "Top 10:\n"
+            for im in top10:
+                file = im[1].split('/')[-1]
+                img = cv2.imread(TEST_DIR + file,0)
+                cv2.imwrite(topDIR + file, img)
+                predictionOutput = predictionOutput + ("Image: {} : Prediction: {}\n".format(im[1],im[0]))    
+            predictionOutput = predictionOutput + "\n\nCenter 10:\n"
+            for im in center10:
+                file = im[1].split('/')[-1]
+                img = cv2.imread(TEST_DIR + file,0)
+                cv2.imwrite(centerDIR + file, img)
+                predictionOutput = predictionOutput + ("Image: {} : Prediction: {}\n".format(im[1],im[0]))
+            predictionOutput = predictionOutput + "\n\nBottom 10:\n"
+            for im in bottom10:
+                file = im[1].split('/')[-1]
+                img = cv2.imread(TEST_DIR + file,0)
+                cv2.imwrite(bottomDIR + file, img)
+                predictionOutput = predictionOutput + ("Image: {} : Prediction: {}\n".format(im[1],im[0]))
+            predictionOutput = predictionOutput + "\n"
+            f = open(TEST_PATH + "/Predictions.txt", "w")
+
+            #Model statistics:
+            OutputAvg = avg(ModelOutput)
+            #print (ModelOutput)
+
+            #run statistics with the output vs the training set
+                #some useful points might be comparing the std deviation
+            predictionOutput = predictionOutput + ("\nTraining Set Expected AVG: {}\nTest Set Avg: {}\nDifference on Avg: {}\n".format(TrainAvg,OutputAvg,abs(OutputAvg - TrainAvg)))
+            predictionOutput = predictionOutput + ("Variance in testing set: {}\n".format(variance(ModelOutput)))
+            predictionOutput = predictionOutput + ("Stddv in testing set: {}\n".format(stddv(ModelOutput)))
+
+            f.write(predictionOutput)
+            f.close()
+
+            fig1,axis1 = plt.subplots()
+            axis1.plot(yf,"b.",linestyle="None")
+            axis1.set_title("Full training set")
+            axis1.set_xlabel("Input item")
+            axis1.set_ylabel("Expected value")
+            fig1.savefig(TEST_PATH + "/Expected.png")
+
+            fig2,axis2 = plt.subplots()
+            axis2.plot(ModelOutput,"b.",linestyle="None")
+            axis2.set_title("Test set")
+            axis2.set_xlabel("Input item")
+            axis2.set_ylabel("Generated output")
+            fig2.savefig(TEST_PATH + "/Generated.png")
+            #plt.show()
+            '''

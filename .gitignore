@@ -4,5 +4,6 @@ venv/
 Annotations/
 Images/
 Spaces/
+Models/
 .ipynb_checkpoints/
 .vscode/

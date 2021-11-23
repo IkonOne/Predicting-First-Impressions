@@ -11,6 +11,7 @@ from random import uniform
 import augmentation
 from keras.models import Sequential
 from keras.layers import Convolution2D, Dense, Flatten, MaxPooling2D, Dropout
+from keras.callbacks import ModelCheckpoint
 from sklearn.model_selection import train_test_split
 
 
@@ -173,7 +174,7 @@ def get_metrics(model, x, y):
     return r2
 
 
-def train(Xtrain, ytrain, Xtrain_norm, ytrain_norm, Xvalidate, yvalidate, space):
+def train(Xtrain, ytrain, Xtrain_norm, ytrain_norm, Xvalidate, yvalidate, space, attribute):
     import sys
     from tensorflow.keras.optimizers import RMSprop
     from keras.callbacks import Callback
@@ -220,15 +221,21 @@ def train(Xtrain, ytrain, Xtrain_norm, ytrain_norm, Xvalidate, yvalidate, space)
     lr = 10**(-space['learning_rate'])
     rmsprop = RMSprop(lr=lr, rho=0.9, epsilon=1e-08)
     model.compile(loss='mean_squared_error', optimizer=rmsprop)
-    monitor = CorrelationEarlyStopping(monitor='validate', patience=6, delta=0.01)
+    # monitor = CorrelationEarlyStopping(monitor='validate', patience=6, delta=0.01)
+    model_cp_cb = ModelCheckpoint(
+        filepath=f'./Models/{attribute}.h5',
+        monitor='loss',
+        mode='min',
+        save_best_only=True
+    )
     print(f'\nXtrain.shape : {Xtrain.shape}\n')
     gen = data_generator(Xtrain, ytrain, batch_size=space['batch_size'], space=space,
                          weighted_sampling=space['weighted_sampling'], augment=space['augment'],
                          sampling_factor=space['sampling_factor'], sampling_intercept=space['sampling_intercept'])
     #model.fit_generator(gen, space['samples_per_epoch'], 50, 1, [monitor], (Xvalidate, yvalidate))
-    model.fit(gen, epochs=50, steps_per_epoch=1)
+    model.fit(gen, epochs=50, steps_per_epoch=1, callbacks=[model_cp_cb])
     # model.fit(Xtrain, ytrain, space['samples_per_epoch'], 50, 1, [monitor], validation_data=(Xvalidate, yvalidate))
-    return monitor.best_model, monitor.rvalues
+    # return monitor.best_model, monitor.rvalues
 
 
 if __name__ == '__main__':
@@ -237,6 +244,8 @@ if __name__ == '__main__':
     import json
 
     ATTRIBUTE = 'IQ'
+    if len(sys.argv) == 2:
+        ATTRIBUTE = sys.argv[1]
 
     ANNO = 'Annotations/' + ATTRIBUTE + '/annotations.csv'
     TRAIN_DIR = 'Images/' + ATTRIBUTE + '/Train/'
@@ -248,7 +257,7 @@ if __name__ == '__main__':
     MODEL_PATH = 'Models/' + ATTRIBUTE + '.h5'
 
     import data_prep
-    X, y, labels = data_prep.load_cleaned_data()
+    X, y, labels, img_names = data_prep.load_cleaned_data()
     X = X.reshape((X.shape[0], X.shape[1], X.shape[2], 1))
 
     Xtrain, Xtest, ytrain, ytest = train_test_split(X, y[:,0], test_size=0.1)
@@ -261,6 +270,8 @@ if __name__ == '__main__':
 
     with open(SPACE_FILE, 'r') as f:
         opt_params = json.load(f)
-        model, results = train(Xtrain, ytrain, Xtrain_norm, ytrain_norm, Xvalidate, yvalidate, opt_params)
-        if model is not None:
-            model.save(MODEL_PATH)
+        train(Xtrain, ytrain, Xtrain_norm, ytrain_norm, Xvalidate, yvalidate, opt_params, ATTRIBUTE)
+        # model, results = train(Xtrain, ytrain, Xtrain_norm, ytrain_norm, Xvalidate, yvalidate, opt_params, ATTRIBUTE)
+        # if model is not None:
+        #     print(MODEL_PATH)
+        #     model.save(MODEL_PATH)
