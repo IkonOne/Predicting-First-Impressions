@@ -87,15 +87,21 @@ def main():
     attributes = ['IQ', 'Age', 'Trustworthiness', 'Dominance']
 
     X, y, attribute_labels, img_names = data_prep.load_cleaned_data()
+    X = X.reshape((X.shape[0], X.shape[1], X.shape[2], 1))
 
     for attribute in attributes:
         test_split = data_prep.get_premade_split(attribute, split='test')
         test_mask = np.isin(img_names, test_split)
 
         X_test = X[test_mask]
-        y_test = y[test_mask]
 
-        
+        y_attrib = y[:,attribute_labels.index(attribute)]
+        y_test = y_attrib[test_mask]
+
+        model = tf.keras.models.load_model(f'Models/{attribute}.h5')
+        y_pred = model.predict(X_test)
+        print(y_pred)
+        print(get_Rsquared(y_test, y_pred))
 
 #so we could try to just load the images from the test folder and then see what predicted outputs are generated :)
 if __name__ == '__main__':
