@@ -89,7 +89,6 @@ def main():
     X, y, attribute_labels, img_names = data_prep.load_cleaned_data()
 
     for attribute in attributes:
-
         test_split = data_prep.get_premade_split(attribute, split='test')
         test_mask = np.isin(img_names, test_split)
 

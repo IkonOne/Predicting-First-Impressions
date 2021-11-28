@@ -175,9 +175,13 @@ def get_metrics(model, x, y):
 
 
 def train(Xtrain, ytrain, Xtrain_norm, ytrain_norm, Xvalidate, yvalidate, space, attribute):
+    import os
     import sys
     from tensorflow.keras.optimizers import RMSprop
     from keras.callbacks import Callback
+
+    # make sure the models directory exists so we can write to it
+    os.makedirs('Models', exist_ok=True)
 
     class CorrelationEarlyStopping(Callback):
         def __init__(self, monitor='validate', patience=0, delta=.001):
