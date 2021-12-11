@@ -9,3 +9,4 @@ imageio
 scikit-learn
 notebook
 scikit-image
+ipywidgets
