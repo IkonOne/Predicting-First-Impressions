@@ -11,8 +11,35 @@ from random import uniform
 import augmentation
 from keras.models import Sequential
 from keras.layers import Convolution2D, Dense, Flatten, MaxPooling2D, Dropout
+from keras.callbacks import ModelCheckpoint
 from sklearn.model_selection import train_test_split
 
+
+# ---- Keras bugfix
+
+# https://github.com/keras-team/keras/issues/13684#issuecomment-595054461
+
+import tensorflow as tf
+import keras.backend.tensorflow_backend as tfback
+print("tf.__version__ is", tf.__version__)
+print("tf.keras.__version__ is:", tf.keras.__version__)
+
+def _get_available_gpus():
+    """Get a list of available gpu devices (formatted as strings).
+
+    # Returns
+        A list of available GPU devices.
+    """
+
+    #global _LOCAL_DEVICES
+    if tfback._LOCAL_DEVICES is None:
+        devices = tf.config.list_logical_devices()
+        tfback._LOCAL_DEVICES = [x.name for x in devices]
+    return [x for x in tfback._LOCAL_DEVICES if 'device:gpu' in x.lower()]
+
+tfback._get_available_gpus = _get_available_gpus
+
+# ----
 
 def parse_csv(CSV):
     df = pd.read_csv(CSV, delim_whitespace=False, header=0, index_col=0)
@@ -95,7 +122,7 @@ def data_generator(x, y, batch_size, space, sampling_factor=3, sampling_intercep
             if augment: x_ = augmentation.applyRandomAugmentation(x[i], space)
             else: x_ = x[i]
             x_ = x_.astype('float32') / 255.
-            x_.shape = (1, 150, 130)
+            x_.shape = (150, 130, 1)
             Xbatch.append(x_)
             ybatch.append(y[i])
             in_batch += 1
@@ -108,8 +135,8 @@ def vgg_variant(space):
     model = Sequential()
 
     for outputs in space['conv0filters']:
-        model.add(Convolution2D(outputs, (3, 3), padding='same', input_shape=(150, 130, 1), kernel_initializer='glorot_uniform',
-                                activation='relu'))
+        #model.add(Convolution2D(outputs, (3, 3), padding='same', input_shape=(150, 130, 1), data_format='channels_last', kernel_initializer='glorot_uniform', activation='relu'))
+        model.add(Convolution2D(outputs, (3, 3), padding='same', input_shape=(150, 130, 1), kernel_initializer='glorot_uniform', activation='relu'))
         model.add(Convolution2D(outputs, (3, 3), padding='same', activation='relu'))
         model.add(MaxPooling2D(pool_size=(2, 2), strides=(2, 2)))
 
@@ -147,10 +174,14 @@ def get_metrics(model, x, y):
     return r2
 
 
-def train(Xtrain, ytrain, Xtrain_norm, ytrain_norm, Xvalidate, yvalidate, space):
+def train(Xtrain, ytrain, Xtrain_norm, ytrain_norm, Xvalidate, yvalidate, space, attribute):
+    import os
     import sys
     from tensorflow.keras.optimizers import RMSprop
     from keras.callbacks import Callback
+
+    # make sure the models directory exists so we can write to it
+    os.makedirs('Models', exist_ok=True)
 
     class CorrelationEarlyStopping(Callback):
         def __init__(self, monitor='validate', patience=0, delta=.001):
@@ -190,16 +221,25 @@ def train(Xtrain, ytrain, Xtrain_norm, ytrain_norm, Xvalidate, yvalidate, space)
                     self.wait += 1
 
     model = vgg_variant(space)
+    print(model.summary())
     lr = 10**(-space['learning_rate'])
     rmsprop = RMSprop(lr=lr, rho=0.9, epsilon=1e-08)
     model.compile(loss='mean_squared_error', optimizer=rmsprop)
-    monitor = CorrelationEarlyStopping(monitor='validate', patience=6, delta=0.01)
-    # gen = data_generator(Xtrain, ytrain, batch_size=space['batch_size'], space=space,
-    #                      weighted_sampling=space['weighted_sampling'], augment=space['augment'],
-    #                      sampling_factor=space['sampling_factor'], sampling_intercept=space['sampling_intercept'])
-    # model.fit_generator(gen, space['samples_per_epoch'], 50, 1, [monitor], (Xvalidate, yvalidate))
-    model.fit(Xtrain, ytrain, space['samples_per_epoch'], 50, 1, [monitor], validation_data=(Xvalidate, yvalidate))
-    return monitor.best_model, monitor.rvalues
+    # monitor = CorrelationEarlyStopping(monitor='validate', patience=6, delta=0.01)
+    model_cp_cb = ModelCheckpoint(
+        filepath=f'./Models/{attribute}.h5',
+        monitor='loss',
+        mode='min',
+        save_best_only=True
+    )
+    print(f'\nXtrain.shape : {Xtrain.shape}\n')
+    gen = data_generator(Xtrain, ytrain, batch_size=space['batch_size'], space=space,
+                         weighted_sampling=space['weighted_sampling'], augment=space['augment'],
+                         sampling_factor=space['sampling_factor'], sampling_intercept=space['sampling_intercept'])
+    #model.fit_generator(gen, space['samples_per_epoch'], 50, 1, [monitor], (Xvalidate, yvalidate))
+    model.fit(gen, epochs=50, steps_per_epoch=1, callbacks=[model_cp_cb])
+    # model.fit(Xtrain, ytrain, space['samples_per_epoch'], 50, 1, [monitor], validation_data=(Xvalidate, yvalidate))
+    # return monitor.best_model, monitor.rvalues
 
 
 if __name__ == '__main__':
@@ -208,6 +248,8 @@ if __name__ == '__main__':
     import json
 
     ATTRIBUTE = 'IQ'
+    if len(sys.argv) == 2:
+        ATTRIBUTE = sys.argv[1]
 
     ANNO = 'Annotations/' + ATTRIBUTE + '/annotations.csv'
     TRAIN_DIR = 'Images/' + ATTRIBUTE + '/Train/'
@@ -218,15 +260,9 @@ if __name__ == '__main__':
     # SPACE_FILE = 'Spaces/' + ATTRIBUTE + '/' + ATTRIBUTE + '_space.json'
     MODEL_PATH = 'Models/' + ATTRIBUTE + '.h5'
 
-    # print('Loading Train Data')
-    # Xtrain, ytrain = load_images('./Images', f'./Annotations/{ATTRIBUTE}/test.txt', f'./Annotations/{ATTRIBUTE}/annotations.csv')
-    # print('Loading Train Data Again')
-    # Xtrain_norm, ytrain_norm = load_images('./Images', f'./Annotations/{ATTRIBUTE}/test.txt', f'./Annotations/{ATTRIBUTE}/annotations.csv', normalize=True, rollaxis=True)
-    # print('Loading Validation Data')
-    # Xvalidate, yvalidate = load_images('./Images', f'./Annotations/{ATTRIBUTE}/validate.txt', f'./Annotations/{ATTRIBUTE}/annotations.csv', normalize=True, rollaxis=True)
-
     import data_prep
-    X, y, labels = data_prep.load_cleaned_data()
+    X, y, labels, img_names = data_prep.load_cleaned_data()
+    X = X.reshape((X.shape[0], X.shape[1], X.shape[2], 1))
 
     Xtrain, Xtest, ytrain, ytest = train_test_split(X, y[:,0], test_size=0.1)
     Xtest, Xvalidate, ytest, yvalidate = train_test_split(Xtest, ytest, test_size=0.5)
@@ -238,5 +274,8 @@ if __name__ == '__main__':
 
     with open(SPACE_FILE, 'r') as f:
         opt_params = json.load(f)
-        model, results = train(Xtrain, ytrain, Xtrain_norm, ytrain_norm, Xvalidate, yvalidate, opt_params)
-        model.save(MODEL_PATH)
+        train(Xtrain, ytrain, Xtrain_norm, ytrain_norm, Xvalidate, yvalidate, opt_params, ATTRIBUTE)
+        # model, results = train(Xtrain, ytrain, Xtrain_norm, ytrain_norm, Xvalidate, yvalidate, opt_params, ATTRIBUTE)
+        # if model is not None:
+        #     print(MODEL_PATH)
+        #     model.save(MODEL_PATH)
