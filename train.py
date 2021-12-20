@@ -1,6 +1,7 @@
 from __future__ import annotations
 import csv
 import matplotlib
+from tensorflow.python.keras.optimizer_v2.rmsprop import RMSProp
 matplotlib.use('Agg')
 import pandas as pd
 from scipy.stats.mstats import linregress
@@ -19,25 +20,25 @@ from sklearn.model_selection import train_test_split
 
 # https://github.com/keras-team/keras/issues/13684#issuecomment-595054461
 
-import tensorflow as tf
-import keras.backend.tensorflow_backend as tfback
-print("tf.__version__ is", tf.__version__)
-print("tf.keras.__version__ is:", tf.keras.__version__)
+# import tensorflow as tf
+# import keras.backend.tensorflow_backend as tfback
+# print("tf.__version__ is", tf.__version__)
+# print("tf.keras.__version__ is:", tf.keras.__version__)
 
-def _get_available_gpus():
-    """Get a list of available gpu devices (formatted as strings).
+# def _get_available_gpus():
+#     """Get a list of available gpu devices (formatted as strings).
 
-    # Returns
-        A list of available GPU devices.
-    """
+#     # Returns
+#         A list of available GPU devices.
+#     """
 
-    #global _LOCAL_DEVICES
-    if tfback._LOCAL_DEVICES is None:
-        devices = tf.config.list_logical_devices()
-        tfback._LOCAL_DEVICES = [x.name for x in devices]
-    return [x for x in tfback._LOCAL_DEVICES if 'device:gpu' in x.lower()]
+#     #global _LOCAL_DEVICES
+#     if tfback._LOCAL_DEVICES is None:
+#         devices = tf.config.list_logical_devices()
+#         tfback._LOCAL_DEVICES = [x.name for x in devices]
+#     return [x for x in tfback._LOCAL_DEVICES if 'device:gpu' in x.lower()]
 
-tfback._get_available_gpus = _get_available_gpus
+# tfback._get_available_gpus = _get_available_gpus
 
 # ----
 
@@ -223,7 +224,8 @@ def train(Xtrain, ytrain, Xtrain_norm, ytrain_norm, Xvalidate, yvalidate, space,
     model = vgg_variant(space)
     print(model.summary())
     lr = 10**(-space['learning_rate'])
-    rmsprop = RMSprop(lr=lr, rho=0.9, epsilon=1e-08)
+    rmsprop = RMSprop(learning_rate=lr, rho=0.9, epsilon=1e-08)
+    # rmsprop = RMSProp()
     model.compile(loss='mean_squared_error', optimizer=rmsprop)
     # monitor = CorrelationEarlyStopping(monitor='validate', patience=6, delta=0.01)
     model_cp_cb = ModelCheckpoint(

@@ -8,13 +8,17 @@ def get_image_names():
     img_names = os.listdir('./Images')
     return img_names
 
-def load_images():
+def load_images(normalize=False):
     img_names = os.listdir('./Images')
     data_dir = os.path.join(os.getcwd(), 'Images')
     X = []
     for img in img_names:
         img_path = os.path.join(data_dir, img)
         X.append(io.imread(img_path))
+    
+    # Mean center and normalize the images
+    if normalize:
+        X = (X - np.mean(X)) / np.std(X)
     
     print(f'Loaded {len(X)} images...')
     
@@ -38,10 +42,10 @@ def load_annotations():
 
     return data_frame, annotation_labels
 
-def load_cleaned_data():
+def load_cleaned_data(normalize=False):
     """There are images listed in the annotations that don't exist.
     So let's get rid of them and return a clean dataset."""
-    X, img_names = load_images()
+    X, img_names = load_images(normalize)
     annotations, annotation_labels = load_annotations()
     annotations = annotations.dropna()
     mask = np.isin(img_names, annotations['Image'])

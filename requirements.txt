@@ -10,3 +10,4 @@ scikit-learn
 notebook
 scikit-image
 ipywidgets
+tensorflow_probability
