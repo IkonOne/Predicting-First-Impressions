@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import pandas as pd
+import tensorflow as tf
 from skimage import io
 from sklearn.model_selection import train_test_split
 
@@ -23,6 +24,13 @@ def load_images(normalize=False):
     print(f'Loaded {len(X)} images...')
     
     return np.asarray(X), img_names
+
+def convert_greyscale_to_rgb(X):
+    if X.shape[-1] != 1:
+        X = np.expand_dims(X, axis=-1)
+    X = tf.convert_to_tensor(X, dtype=tf.float32)
+    X = tf.image.grayscale_to_rgb(X)
+    return X
 
 def load_annotations():
     annotation_labels= os.listdir('./Annotations')
@@ -91,6 +99,36 @@ def create_splits(annotation, splits=[0.9, 0.05, 0.05], save_folder='Splits', rs
     print(f'Created training split of ratio {splits[0]} with {len(train_split)} images')
     print(f'Created validation split of ratio {splits[1]} with {len(validation_split)} images')
     print(f'Created test split of ratio {splits[2]} with {len(test_split)} images')
+
+def load_prepped_data(train_size=0.8, label_idx=2):
+    X, y, labels, img_names = load_cleaned_data(normalize=False)
+    print(f'Training on label: {labels[label_idx]}')
+    X = np.expand_dims(X, axis=-1)
+    y = y[:,label_idx]
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=train_size)
+
+    print(f'Target value range: {np.min(y)}, {np.max(y)}')
+    X_train = tf.convert_to_tensor(X_train, dtype=tf.float32)
+    X_train = tf.image.grayscale_to_rgb(X_train)
+    X_test = tf.convert_to_tensor(X_test, dtype=tf.float32)
+    X_test = tf.image.grayscale_to_rgb(X_test)
+
+    return X_train, X_test, y_train, y_test
+
+def normalize_splits(train, *argv):
+    """Normalizes image splits in place.
+
+    Computes the mean and std strictly on the training data.
+
+    """
+    mu_t = np.mean(train)
+    std_t = np.std(train)
+
+    train = (train - mu_t) / std_t
+    for arg in argv:
+        arg = (arg - mu_t) / std_t
+
 
 if __name__ == '__main__':
     # images, annotations, annotation_labels = load_cleaned_data()
