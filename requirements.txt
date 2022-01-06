@@ -12,3 +12,4 @@ scikit-image
 ipywidgets
 tensorflow_probability
 keras-tuner
+seaborn
